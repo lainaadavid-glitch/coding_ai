@@ -1,17 +1,17 @@
-import tkinter as tk
-from tkinter import scrolledtext, filedialog, messagebox
+
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 from dotenv import load_dotenv
 import requests
 import threading
-import json
 import subprocess
+import os
+import json
 import keyword
 import re
-import os
-
 
 # =========================================================
-# ENVIRONMENT SETTINGS
+# LOAD PRIVATE SETTINGS
 # =========================================================
 
 load_dotenv()
@@ -24,353 +24,688 @@ conversation = []
 current_file = None
 project_folder = None
 
-ai_running = False
-stop_requested = False
+# =========================================================
+# APP SETTINGS
+# =========================================================
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 
 # =========================================================
-# MAIN WINDOW
+# MAIN APP
 # =========================================================
 
-window = tk.Tk()
-window.title("🤖 My Coding AI")
-window.geometry("1350x850")
-window.configure(bg="#202123")
+class CodingAI(ctk.CTk):
+
+    def __init__(self):
+        super().__init__()
+
+        self.title("🤖 Coding AI")
+        self.geometry("1350x850")
+        self.minsize(1000, 650)
+
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        self.sidebar = ctk.CTkFrame(
+            self,
+            width=220,
+            corner_radius=0
+        )
+        self.sidebar.grid(
+            row=0,
+            column=0,
+            sticky="nsew"
+        )
+        self.sidebar.grid_propagate(False)
+
+        self.content = ctk.CTkFrame(
+            self,
+            corner_radius=0
+        )
+        self.content.grid(
+            row=0,
+            column=1,
+            sticky="nsew"
+        )
+
+        self.content.grid_rowconfigure(
+            0,
+            weight=1
+        )
+        self.content.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        self.create_sidebar()
+
+        self.pages = {}
+
+        self.create_chat_page()
+        self.create_editor_page()
+        self.create_debugger_page()
+        self.create_projects_page()
+        self.create_settings_page()
+
+        self.show_page("chat")
 
 
-# =========================================================
-# COLORS
-# =========================================================
+    # =====================================================
+    # SIDEBAR
+    # =====================================================
 
-BG = "#202123"
-SIDEBAR = "#18191c"
-CHAT_BG = "#343541"
-EDITOR_BG = "#1e1e1e"
-INPUT_BG = "#40414F"
+    def create_sidebar(self):
 
+        title = ctk.CTkLabel(
+            self.sidebar,
+            text="🤖 CODING AI",
+            font=ctk.CTkFont(
+                size=22,
+                weight="bold"
+            )
+        )
+        title.pack(
+            pady=(30, 35)
+        )
 
-# =========================================================
-# UTILITY
-# =========================================================
+        self.add_nav_button(
+            "💬  Chat",
+            "chat"
+        )
 
-def set_status(text):
-    window.after(
-        0,
-        lambda: status.config(text=text)
-    )
+        self.add_nav_button(
+            "📝  Code Editor",
+            "editor"
+        )
 
+        self.add_nav_button(
+            "🐛  Debugger",
+            "debugger"
+        )
 
-def add_text(text, tag="ai"):
-    chat.insert(
-        tk.END,
-        text,
-        tag
-    )
-    chat.see(tk.END)
+        self.add_nav_button(
+            "📁  Projects",
+            "projects"
+        )
 
+        self.add_nav_button(
+            "⚙️  Settings",
+            "settings"
+        )
 
-def clear_main_area():
-    for widget in content_frame.winfo_children():
-        widget.destroy()
+        self.status_label = ctk.CTkLabel(
+            self.sidebar,
+            text="🟢 Ready",
+            text_color="lightgreen"
+        )
 
-
-def show_page(page):
-    clear_main_area()
-
-    if page == "chat":
-        create_chat_page()
-
-    elif page == "debug":
-        create_debug_page()
-
-    elif page == "generate":
-        create_generator_page()
-
-    elif page == "run":
-        create_runner_page()
-
-    elif page == "projects":
-        create_projects_page()
-
-    elif page == "settings":
-        create_settings_page()
+        self.status_label.pack(
+            side="bottom",
+            pady=20
+        )
 
 
-# =========================================================
-# AI BUTTON CONTROL
-# =========================================================
+    def add_nav_button(self, text, page):
 
-def disable_ai_buttons():
-    global ai_running
+        button = ctk.CTkButton(
+            self.sidebar,
+            text=text,
+            height=45,
+            anchor="w",
+            command=lambda: self.show_page(page)
+        )
 
-    ai_running = True
-
-    send_button.config(state=tk.DISABLED)
-
-    if debug_button:
-        debug_button.config(state=tk.DISABLED)
-
-    if generate_button:
-        generate_button.config(state=tk.DISABLED)
-
-    stop_button.config(state=tk.NORMAL)
+        button.pack(
+            fill="x",
+            padx=15,
+            pady=5
+        )
 
 
-def finished():
-    global ai_running
-    global stop_requested
+    # =====================================================
+    # PAGE SYSTEM
+    # =====================================================
 
-    ai_running = False
-    stop_requested = False
+    def create_page(self, name):
 
-    if send_button:
-        send_button.config(state=tk.NORMAL)
+        frame = ctk.CTkFrame(
+            self.content,
+            corner_radius=0
+        )
 
-    if debug_button:
-        debug_button.config(state=tk.NORMAL)
+        frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew"
+        )
 
-    if generate_button:
-        generate_button.config(state=tk.NORMAL)
+        frame.grid_columnconfigure(
+            0,
+            weight=1
+        )
 
-    stop_button.config(state=tk.DISABLED)
+        frame.grid_rowconfigure(
+            1,
+            weight=1
+        )
 
-    set_status("🟢 Ready")
+        self.pages[name] = frame
 
-    entry.focus()
-
-
-# =========================================================
-# NORMAL CHAT
-# =========================================================
-
-def ask_ai():
-
-    question = entry.get().strip()
-
-    if not question:
-        return
-
-    entry.delete(0, tk.END)
-
-    chat.insert(
-        tk.END,
-        f"\nYou: {question}\n\n",
-        "user"
-    )
-
-    chat.insert(
-        tk.END,
-        "AI: ",
-        "ai"
-    )
-
-    chat.see(tk.END)
-
-    disable_ai_buttons()
-
-    set_status("🤔 AI is thinking...")
-
-    threading.Thread(
-        target=get_ai_response,
-        args=(question,),
-        daemon=True
-    ).start()
+        return frame
 
 
-def get_ai_response(question):
+    def show_page(self, page):
 
-    conversation.append(
-        f"User: {question}"
-    )
+        self.pages[page].tkraise()
 
-    system_prompt = """
+
+    # =====================================================
+    # CHAT PAGE
+    # =====================================================
+
+    def create_chat_page(self):
+
+        page = self.create_page("chat")
+
+        title = ctk.CTkLabel(
+            page,
+            text="💬 Chat with Coding AI",
+            font=ctk.CTkFont(
+                size=24,
+                weight="bold"
+            )
+        )
+
+        title.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=25,
+            pady=20
+        )
+
+        self.chat_box = ctk.CTkTextbox(
+            page,
+            font=ctk.CTkFont(
+                size=14
+            )
+        )
+
+        self.chat_box.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=25,
+            pady=10
+        )
+
+        self.chat_box.insert(
+            "end",
+            "🤖 Coding AI\n\n"
+            "Ask me anything about programming.\n"
+        )
+
+        bottom = ctk.CTkFrame(
+            page
+        )
+
+        bottom.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=25,
+            pady=15
+        )
+
+        bottom.grid_columnconfigure(
+            0,
+            weight=1
+        )
+
+        self.chat_entry = ctk.CTkEntry(
+            bottom,
+            placeholder_text="Ask Coding AI..."
+        )
+
+        self.chat_entry.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(0, 10)
+        )
+
+        send = ctk.CTkButton(
+            bottom,
+            text="💬 Send",
+            width=100,
+            command=self.ask_ai
+        )
+
+        send.grid(
+            row=0,
+            column=1
+        )
+
+        clear = ctk.CTkButton(
+            bottom,
+            text="🧹 Clear",
+            width=100,
+            command=self.clear_chat
+        )
+
+        clear.grid(
+            row=0,
+            column=2,
+            padx=(10, 0)
+        )
+
+        self.chat_entry.bind(
+            "<Return>",
+            lambda event: self.ask_ai()
+        )
+
+
+    def ask_ai(self):
+
+        question = self.chat_entry.get().strip()
+
+        if not question:
+            return
+
+        self.chat_entry.delete(
+            0,
+            "end"
+        )
+
+        self.chat_box.insert(
+            "end",
+            f"\n\nYou: {question}\n\nAI: "
+        )
+
+        self.chat_box.see("end")
+
+        self.set_status(
+            "🤔 AI is thinking..."
+        )
+
+        conversation.append(
+            f"User: {question}"
+        )
+
+        prompt = f"""
 You are Coding AI, a friendly programming tutor.
 
 Rules:
-- Explain programming in simple language.
+- Explain programming simply.
 - Assume the user is a beginner.
 - Give examples when useful.
 - Explain code you provide.
 - Help find and fix errors.
-- Teach the user instead of only giving answers.
+- Teach instead of only giving answers.
+
+Conversation:
+
+{"".join(conversation)}
+
+AI:
 """
 
-    history = "\n".join(conversation)
-
-    prompt = (
-        system_prompt
-        + "\n\nConversation:\n"
-        + history
-        + "\nAI:"
-    )
-
-    send_to_ollama(prompt)
+        threading.Thread(
+            target=self.send_to_ollama,
+            args=(prompt,),
+            daemon=True
+        ).start()
 
 
-# =========================================================
-# DEBUGGER
-# =========================================================
+    def clear_chat(self):
 
-def debug_code():
+        conversation.clear()
 
-    code = debug_box.get(
-        "1.0",
-        tk.END
-    ).strip()
+        self.chat_box.delete(
+            "1.0",
+            "end"
+        )
 
-    if not code:
-        set_status("⚠️ Paste Python code first")
-        return
-
-    chat.insert(
-        tk.END,
-        "\n🐛 Code to analyze:\n",
-        "user"
-    )
-
-    chat.insert(
-        tk.END,
-        code + "\n\n",
-        "code"
-    )
-
-    chat.insert(
-        tk.END,
-        "AI: ",
-        "ai"
-    )
-
-    chat.see(tk.END)
-
-    disable_ai_buttons()
-
-    set_status("🔍 Analyzing code...")
-
-    threading.Thread(
-        target=analyze_code,
-        args=(code,),
-        daemon=True
-    ).start()
+        self.chat_box.insert(
+            "end",
+            "🤖 Coding AI\n\n"
+        )
 
 
-def analyze_code(code):
+    # =====================================================
+    # EDITOR PAGE
+    # =====================================================
 
-    prompt = f"""
+    def create_editor_page(self):
+
+        page = self.create_page("editor")
+
+        title = ctk.CTkLabel(
+            page,
+            text="📝 Python Code Editor",
+            font=ctk.CTkFont(
+                size=24,
+                weight="bold"
+            )
+        )
+
+        title.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=25,
+            pady=20
+        )
+
+        self.editor = ctk.CTkTextbox(
+            page,
+            font=ctk.CTkFont(
+                family="Consolas",
+                size=14
+            )
+        )
+
+        self.editor.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=25,
+            pady=10
+        )
+
+        buttons = ctk.CTkFrame(
+            page
+        )
+
+        buttons.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=25,
+            pady=15
+        )
+
+        ctk.CTkButton(
+            buttons,
+            text="📂 Open",
+            command=self.open_file
+        ).pack(
+            side="left",
+            padx=5
+        )
+
+        ctk.CTkButton(
+            buttons,
+            text="💾 Save",
+            command=self.save_file
+        ).pack(
+            side="left",
+            padx=5
+        )
+
+        ctk.CTkButton(
+            buttons,
+            text="▶️ Run",
+            command=self.run_code
+        ).pack(
+            side="left",
+            padx=5
+        )
+
+
+    # =====================================================
+    # DEBUGGER PAGE
+    # =====================================================
+
+    def create_debugger_page(self):
+
+        page = self.create_page("debugger")
+
+        title = ctk.CTkLabel(
+            page,
+            text="🐛 Python Debugger",
+            font=ctk.CTkFont(
+                size=24,
+                weight="bold"
+            )
+        )
+
+        title.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=25,
+            pady=20
+        )
+
+        self.debug_box = ctk.CTkTextbox(
+            page,
+            font=ctk.CTkFont(
+                family="Consolas",
+                size=14
+            )
+        )
+
+        self.debug_box.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=25,
+            pady=10
+        )
+
+        ctk.CTkButton(
+            page,
+            text="🐛 Debug Code",
+            command=self.debug_code
+        ).grid(
+            row=2,
+            column=0,
+            sticky="w",
+            padx=25,
+            pady=15
+        )
+
+
+    def debug_code(self):
+
+        code = self.debug_box.get(
+            "1.0",
+            "end"
+        ).strip()
+
+        if not code:
+            return
+
+        self.set_status(
+            "🔍 Analyzing code..."
+        )
+
+        prompt = f"""
 You are an expert Python debugging assistant.
 
-Analyze this Python code.
+Analyze this code.
 
-Do these things:
-
-1. Find syntax errors.
-2. Find logical errors.
-3. Explain each problem simply.
+Find:
+1. Syntax errors.
+2. Logical errors.
+3. Explain every problem simply.
 4. Provide corrected code.
-5. Explain what you changed.
+5. Explain your changes.
 
 Code:
 
 {code}
-
-Give your answer clearly and make it easy
-for a beginner to understand.
 """
 
-    send_to_ollama(prompt)
+        threading.Thread(
+            target=self.send_to_ollama,
+            args=(prompt,),
+            daemon=True
+        ).start()
 
 
-# =========================================================
-# CODE GENERATOR
-# =========================================================
+    # =====================================================
+    # PROJECTS PAGE
+    # =====================================================
 
-def generate_code():
+    def create_projects_page(self):
 
-    request = generator_entry.get().strip()
+        page = self.create_page("projects")
 
-    if not request:
-        return
-
-    generator_entry.delete(0, tk.END)
-
-    chat.insert(
-        tk.END,
-        f"\n💻 Generate: {request}\n\n",
-        "user"
-    )
-
-    chat.insert(
-        tk.END,
-        "AI: ",
-        "ai"
-    )
-
-    chat.see(tk.END)
-
-    disable_ai_buttons()
-
-    set_status("💻 Generating code...")
-
-    prompt = f"""
-You are an expert Python programmer.
-
-The user wants you to create code.
-
-User request:
-
-{request}
-
-Rules:
-
-- Write clean Python code.
-- Keep it beginner-friendly.
-- Make the code complete.
-- Explain what the code does.
-- Explain important parts of the code.
-"""
-
-    threading.Thread(
-        target=send_to_ollama,
-        args=(prompt,),
-        daemon=True
-    ).start()
-
-
-# =========================================================
-# OLLAMA
-# =========================================================
-
-def send_to_ollama(prompt):
-
-    global stop_requested
-
-    data = {
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": True
-    }
-
-    try:
-
-        response = requests.post(
-            URL,
-            json=data,
-            stream=True,
-            timeout=300
+        title = ctk.CTkLabel(
+            page,
+            text="📁 Projects",
+            font=ctk.CTkFont(
+                size=24,
+                weight="bold"
+            )
         )
 
-        response.raise_for_status()
+        title.pack(
+            anchor="w",
+            padx=25,
+            pady=20
+        )
 
-        full_answer = ""
+        self.project_label = ctk.CTkLabel(
+            page,
+            text="No project selected"
+        )
 
-        for line in response.iter_lines():
+        self.project_label.pack(
+            anchor="w",
+            padx=25,
+            pady=10
+        )
 
-            if stop_requested:
-                break
+        ctk.CTkButton(
+            page,
+            text="📂 Open Project",
+            command=self.open_project
+        ).pack(
+            anchor="w",
+            padx=25,
+            pady=10
+        )
 
-            if line:
+
+    def open_project(self):
+
+        global project_folder
+
+        folder = filedialog.askdirectory(
+            title="Open Python Project"
+        )
+
+        if not folder:
+            return
+
+        project_folder = folder
+
+        self.project_label.configure(
+            text=folder
+        )
+
+        self.set_status(
+            "📁 Project opened"
+        )
+
+
+    # =====================================================
+    # SETTINGS PAGE
+    # =====================================================
+
+    def create_settings_page(self):
+
+        page = self.create_page("settings")
+
+        title = ctk.CTkLabel(
+            page,
+            text="⚙️ Settings",
+            font=ctk.CTkFont(
+                size=24,
+                weight="bold"
+            )
+        )
+
+        title.pack(
+            anchor="w",
+            padx=25,
+            pady=20
+        )
+
+        appearance = ctk.CTkOptionMenu(
+            page,
+            values=[
+                "Dark",
+                "Light",
+                "System"
+            ],
+            command=self.change_appearance
+        )
+
+        appearance.set(
+            "Dark"
+        )
+
+        appearance.pack(
+            anchor="w",
+            padx=25,
+            pady=15
+        )
+
+        model_label = ctk.CTkLabel(
+            page,
+            text="AI Model: Loaded from .env"
+        )
+
+        model_label.pack(
+            anchor="w",
+            padx=25,
+            pady=10
+        )
+
+
+    def change_appearance(self, choice):
+
+        ctk.set_appearance_mode(
+            choice.lower()
+        )
+
+
+    # =====================================================
+    # OLLAMA
+    # =====================================================
+
+    def send_to_ollama(self, prompt):
+
+        try:
+
+            response = requests.post(
+                URL,
+                json={
+                    "model": MODEL,
+                    "prompt": prompt,
+                    "stream": True
+                },
+                stream=True,
+                timeout=300
+            )
+
+            response.raise_for_status()
+
+            full_answer = ""
+
+            for line in response.iter_lines():
+
+                if not line:
+                    continue
 
                 result = json.loads(
-                    line.decode("utf-8")
+                    line.decode()
                 )
 
                 text = result.get(
@@ -380,1241 +715,244 @@ def send_to_ollama(prompt):
 
                 full_answer += text
 
-                window.after(
+                self.after(
                     0,
-                    lambda text=text: add_text(text)
+                    lambda t=text: self.add_ai_text(t)
                 )
-
-        if stop_requested:
-
-            window.after(
-                0,
-                lambda: add_text(
-                    "\n\n⛔ Response stopped.\n"
-                )
-            )
-
-        else:
 
             conversation.append(
                 f"AI: {full_answer}"
             )
 
-        window.after(
-            0,
-            finished
-        )
-
-    except requests.exceptions.ConnectionError:
-
-        window.after(
-            0,
-            lambda: add_text(
-                "\n❌ Can't connect to the AI service.\n"
-            )
-        )
-
-        window.after(
-            0,
-            finished
-        )
-
-    except requests.exceptions.Timeout:
-
-        window.after(
-            0,
-            lambda: add_text(
-                "\n⏳ AI took too long to respond.\n"
-            )
-        )
-
-        window.after(
-            0,
-            finished
-        )
-
-    except Exception as error:
-
-        window.after(
-            0,
-            lambda: add_text(
-                f"\n❌ Error: {error}\n"
-            )
-        )
-
-        window.after(
-            0,
-            finished
-        )
-
-
-# =========================================================
-# STOP RESPONSE
-# =========================================================
-
-def stop_response():
-
-    global stop_requested
-
-    if not ai_running:
-        return
-
-    stop_requested = True
-
-    set_status("⛔ Stopping response...")
-
-
-# =========================================================
-# RUN CODE
-# =========================================================
-
-def run_code():
-
-    code = runner_box.get(
-        "1.0",
-        tk.END
-    ).strip()
-
-    if not code:
-        set_status("⚠️ Paste Python code first")
-        return
-
-    output_box.delete(
-        "1.0",
-        tk.END
-    )
-
-    set_status("▶️ Running Python...")
-
-    threading.Thread(
-        target=execute_code,
-        args=(code,),
-        daemon=True
-    ).start()
-
-
-def execute_code(code):
-
-    try:
-
-        result = subprocess.run(
-            ["python", "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-
-        output = ""
-
-        if result.stdout:
-
-            output += (
-                "📤 Output:\n"
-                + result.stdout
+            self.after(
+                0,
+                lambda: self.set_status("🟢 Ready")
             )
 
-        if result.stderr:
+        except requests.exceptions.ConnectionError:
 
-            output += (
-                "\n❌ Error:\n"
-                + result.stderr
+            self.after(
+                0,
+                lambda: self.add_ai_text(
+                    "\n❌ Cannot connect to AI server.\n"
+                )
             )
 
-        if not output:
-
-            output = (
-                "✅ Code finished successfully."
+            self.after(
+                0,
+                lambda: self.set_status("🔴 Connection error")
             )
 
-        window.after(
-            0,
-            lambda: show_runner_output(output)
-        )
+        except Exception as error:
 
-    except subprocess.TimeoutExpired:
-
-        window.after(
-            0,
-            lambda: show_runner_output(
-                "⏳ Code took too long and was stopped."
-            )
-        )
-
-    except Exception as error:
-
-        window.after(
-            0,
-            lambda: show_runner_output(
-                f"❌ Error: {error}"
-            )
-        )
-
-
-def show_runner_output(output):
-
-    output_box.delete(
-        "1.0",
-        tk.END
-    )
-
-    output_box.insert(
-        tk.END,
-        output
-    )
-
-    set_status("🟢 Code finished")
-
-
-# =========================================================
-# CLEAR CHAT
-# =========================================================
-
-def clear_chat():
-
-    conversation.clear()
-
-    if chat:
-
-        chat.delete(
-            "1.0",
-            tk.END
-        )
-
-        chat.insert(
-            tk.END,
-            "🤖 Coding AI\n\n",
-            "title"
-        )
-
-    set_status("🧹 Chat cleared")
-
-
-# =========================================================
-# PROJECT FUNCTIONS
-# =========================================================
-
-def open_project():
-
-    global project_folder
-
-    folder = filedialog.askdirectory(
-        title="Open Python Project"
-    )
-
-    if not folder:
-        return
-
-    project_folder = folder
-
-    refresh_project()
-
-    set_status(
-        f"📁 Project opened: {os.path.basename(folder)}"
-    )
-
-
-def refresh_project():
-
-    if not project_folder:
-        return
-
-    file_tree.delete(
-        0,
-        tk.END
-    )
-
-    try:
-
-        items = os.listdir(
-            project_folder
-        )
-
-        folders = []
-        files = []
-
-        for item in items:
-
-            path = os.path.join(
-                project_folder,
-                item
+            self.after(
+                0,
+                lambda: self.add_ai_text(
+                    f"\n❌ Error: {error}\n"
+                )
             )
 
-            if os.path.isdir(path):
-
-                folders.append(item)
-
-            elif item.endswith(".py"):
-
-                files.append(item)
-
-        for folder in sorted(folders):
-
-            file_tree.insert(
-                tk.END,
-                f"📁 {folder}"
+            self.after(
+                0,
+                lambda: self.set_status("🔴 Error")
             )
 
-        for file in sorted(files):
 
-            file_tree.insert(
-                tk.END,
-                f"🐍 {file}"
-            )
+    def add_ai_text(self, text):
 
-    except Exception as error:
+        self.chat_box.insert(
+            "end",
+            text
+        )
 
-        messagebox.showerror(
-            "Project Error",
-            str(error)
+        self.chat_box.see(
+            "end"
         )
 
 
-def open_project_file(event=None):
+    # =====================================================
+    # FILE FUNCTIONS
+    # =====================================================
 
-    global current_file
+    def open_file(self):
 
-    selection = file_tree.curselection()
+        global current_file
 
-    if not selection:
-        return
-
-    item = file_tree.get(
-        selection[0]
-    )
-
-    if not item.startswith("🐍"):
-        return
-
-    filename = item[2:].strip()
-
-    path = os.path.join(
-        project_folder,
-        filename
-    )
-
-    open_python_file(path)
-
-
-def open_python_file(path):
-
-    global current_file
-
-    try:
-
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            code = file.read()
-
-        current_file = path
-
-        set_status(
-            f"📂 Opened {os.path.basename(path)}"
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("Python files", "*.py"),
+                ("All files", "*.*")
+            ]
         )
 
-        if current_page == "projects":
+        if not path:
+            return
 
-            project_editor.delete(
+        try:
+
+            with open(
+                path,
+                "r",
+                encoding="utf-8"
+            ) as file:
+
+                code = file.read()
+
+            self.editor.delete(
                 "1.0",
-                tk.END
+                "end"
             )
 
-            project_editor.insert(
+            self.editor.insert(
                 "1.0",
                 code
             )
 
-    except Exception as error:
+            current_file = path
 
-        messagebox.showerror(
-            "File Error",
-            str(error)
-        )
-
-
-def new_python_file():
-
-    global current_file
-
-    if not project_folder:
-
-        messagebox.showwarning(
-            "No Project",
-            "Open a project folder first."
-        )
-
-        return
-
-    filename = filedialog.asksaveasfilename(
-        title="Create Python File",
-        initialdir=project_folder,
-        defaultextension=".py",
-        filetypes=[
-            ("Python Files", "*.py")
-        ]
-    )
-
-    if not filename:
-        return
-
-    try:
-
-        with open(
-            filename,
-            "w",
-            encoding="utf-8"
-        ) as file:
-
-            file.write(
-                "# New Python file\n"
+            self.set_status(
+                f"📂 Opened {os.path.basename(path)}"
             )
 
-        current_file = filename
+        except Exception as error:
 
-        refresh_project()
-
-        set_status(
-            "📄 New Python file created"
-        )
-
-    except Exception as error:
-
-        messagebox.showerror(
-            "Create Error",
-            str(error)
-        )
+            messagebox.showerror(
+                "Open Error",
+                str(error)
+            )
 
 
-def save_project_file():
+    def save_file(self):
 
-    global current_file
+        global current_file
 
-    if not current_file:
-        save_file()
-        return
+        if current_file is None:
 
-    try:
+            current_file = filedialog.asksaveasfilename(
+                defaultextension=".py",
+                filetypes=[
+                    ("Python files", "*.py")
+                ]
+            )
 
-        code = project_editor.get(
+        if not current_file:
+            return
+
+        code = self.editor.get(
             "1.0",
-            tk.END
-        ).rstrip()
-
-        with open(
-            current_file,
-            "w",
-            encoding="utf-8"
-        ) as file:
-
-            file.write(code)
-
-        refresh_project()
-
-        set_status(
-            f"💾 Saved {os.path.basename(current_file)}"
+            "end"
         )
 
-    except Exception as error:
+        try:
 
-        messagebox.showerror(
-            "Save Error",
-            str(error)
+            with open(
+                current_file,
+                "w",
+                encoding="utf-8"
+            ) as file:
+
+                file.write(code)
+
+            self.set_status(
+                f"💾 Saved {os.path.basename(current_file)}"
+            )
+
+        except Exception as error:
+
+            messagebox.showerror(
+                "Save Error",
+                str(error)
+            )
+
+
+    # =====================================================
+    # RUN CODE
+    # =====================================================
+
+    def run_code(self):
+
+        code = self.editor.get(
+            "1.0",
+            "end"
+        ).strip()
+
+        if not code:
+            return
+
+        self.set_status(
+            "▶️ Running..."
         )
 
-
-def save_file():
-
-    global current_file
-
-    code = project_editor.get(
-        "1.0",
-        tk.END
-    ).rstrip()
-
-    if not code:
-        return
-
-    file_path = filedialog.asksaveasfilename(
-        title="Save Python File",
-        defaultextension=".py",
-        filetypes=[
-            ("Python Files", "*.py"),
-            ("All Files", "*.*")
-        ]
-    )
-
-    if not file_path:
-        return
-
-    try:
-
-        with open(
-            file_path,
-            "w",
-            encoding="utf-8"
-        ) as file:
-
-            file.write(code)
-
-        current_file = file_path
-
-        if project_folder:
-            refresh_project()
-
-        set_status(
-            f"💾 Saved {os.path.basename(file_path)}"
-        )
-
-    except Exception as error:
-
-        messagebox.showerror(
-            "Save Error",
-            str(error)
-        )
+        threading.Thread(
+            target=self.execute_code,
+            args=(code,),
+            daemon=True
+        ).start()
 
 
-def delete_project_file():
+    def execute_code(self, code):
 
-    global current_file
+        try:
 
-    selection = file_tree.curselection()
+            result = subprocess.run(
+                ["python", "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
 
-    if not selection:
-        return
+            output = result.stdout
 
-    item = file_tree.get(
-        selection[0]
-    )
+            if result.stderr:
+                output += "\n❌ Error:\n"
+                output += result.stderr
 
-    if not item.startswith("🐍"):
-        return
+            if not output:
+                output = "✅ Code finished successfully."
 
-    filename = item[2:].strip()
+            self.after(
+                0,
+                lambda: self.chat_box.insert(
+                    "end",
+                    f"\n\n▶️ RESULT\n{output}\n"
+                )
+            )
 
-    path = os.path.join(
-        project_folder,
-        filename
-    )
+            self.after(
+                0,
+                lambda: self.set_status(
+                    "🟢 Code finished"
+                )
+            )
 
-    answer = messagebox.askyesno(
-        "Delete File",
-        f"Delete {filename}?"
-    )
+        except subprocess.TimeoutExpired:
 
-    if not answer:
-        return
+            self.after(
+                0,
+                lambda: self.set_status(
+                    "⏳ Code timed out"
+                )
+            )
 
-    try:
 
-        os.remove(path)
+    # =====================================================
+    # STATUS
+    # =====================================================
 
-        if current_file == path:
-            current_file = None
+    def set_status(self, text):
 
-        refresh_project()
-
-        set_status(
-            f"🗑️ Deleted {filename}"
-        )
-
-    except Exception as error:
-
-        messagebox.showerror(
-            "Delete Error",
-            str(error)
+        self.status_label.configure(
+            text=text
         )
 
 
 # =========================================================
-# SETTINGS
+# START APP
 # =========================================================
 
-def create_settings_page():
+if __name__ == "__main__":
 
-    title_label = tk.Label(
-        content_frame,
-        text="⚙️ Settings",
-        font=("Arial", 20, "bold"),
-        bg=BG,
-        fg="white"
-    )
+    app = CodingAI()
 
-    title_label.pack(
-        pady=25
-    )
-
-    info = tk.Label(
-        content_frame,
-        text=(
-            "Private AI configuration is loaded automatically.\n"
-            "Sensitive configuration is not displayed here."
-        ),
-        font=("Arial", 12),
-        bg=BG,
-        fg="#aaaaaa"
-    )
-
-    info.pack(
-        pady=10
-    )
-
-    clear_button = tk.Button(
-        content_frame,
-        text="🧹 Clear Conversation",
-        command=clear_chat,
-        width=25
-    )
-
-    clear_button.pack(
-        pady=10
-    )
-
-    theme_label = tk.Label(
-        content_frame,
-        text="🎨 Interface",
-        font=("Arial", 13, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    theme_label.pack(
-        pady=(30, 5)
-    )
-
-    dark_button = tk.Button(
-        content_frame,
-        text="🌙 Dark Theme",
-        command=lambda: set_theme("dark"),
-        width=25
-    )
-
-    dark_button.pack(
-        pady=5
-    )
-
-
-def set_theme(theme):
-
-    if theme == "dark":
-
-        window.configure(
-            bg="#202123"
-        )
-
-        set_status(
-            "🌙 Dark theme enabled"
-        )
-
-
-# =========================================================
-# CHAT PAGE
-# =========================================================
-
-def create_chat_page():
-
-    global chat
-    global entry
-    global send_button
-    global debug_button
-    global generate_button
-    global stop_button
-
-    title = tk.Label(
-        content_frame,
-        text="💬 AI CHAT",
-        font=("Arial", 18, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    title.pack(
-        pady=8
-    )
-
-    chat = scrolledtext.ScrolledText(
-        content_frame,
-        wrap=tk.WORD,
-        font=("Arial", 12),
-        bg=CHAT_BG,
-        fg="white",
-        insertbackground="white"
-    )
-
-    chat.pack(
-        padx=10,
-        pady=5,
-        fill=tk.BOTH,
-        expand=True
-    )
-
-    chat.tag_config(
-        "user",
-        foreground="#00ff88",
-        font=("Arial", 12, "bold")
-    )
-
-    chat.tag_config(
-        "ai",
-        foreground="white"
-    )
-
-    chat.tag_config(
-        "code",
-        foreground="#00ffff",
-        font=("Consolas", 11)
-    )
-
-    chat.tag_config(
-        "title",
-        foreground="#00ff88",
-        font=("Arial", 15, "bold")
-    )
-
-    chat.insert(
-        tk.END,
-        "🤖 Coding AI\n\n",
-        "title"
-    )
-
-    bottom = tk.Frame(
-        content_frame,
-        bg=BG
-    )
-
-    bottom.pack(
-        fill=tk.X,
-        padx=10,
-        pady=8
-    )
-
-    entry = tk.Entry(
-        bottom,
-        font=("Arial", 13),
-        bg=INPUT_BG,
-        fg="white",
-        insertbackground="white"
-    )
-
-    entry.pack(
-        side=tk.LEFT,
-        fill=tk.X,
-        expand=True,
-        ipady=8
-    )
-
-    send_button = tk.Button(
-        bottom,
-        text="💬 Send",
-        command=ask_ai
-    )
-
-    send_button.pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    debug_button = tk.Button(
-        bottom,
-        text="🐛 Debug Code",
-        command=lambda: show_page("debug")
-    )
-
-    debug_button.pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    generate_button = tk.Button(
-        bottom,
-        text="💻 Generate",
-        command=lambda: show_page("generate")
-    )
-
-    generate_button.pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    stop_button = tk.Button(
-        bottom,
-        text="⛔ Stop",
-        command=stop_response,
-        state=tk.DISABLED
-    )
-
-    stop_button.pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    entry.bind(
-        "<Return>",
-        lambda event: ask_ai()
-    )
-
-    entry.focus()
-
-
-# =========================================================
-# DEBUG PAGE
-# =========================================================
-
-def create_debug_page():
-
-    global debug_box
-
-    title = tk.Label(
-        content_frame,
-        text="🐛 CODE DEBUGGER",
-        font=("Arial", 18, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    title.pack(
-        pady=10
-    )
-
-    debug_box = scrolledtext.ScrolledText(
-        content_frame,
-        font=("Consolas", 11),
-        bg=EDITOR_BG,
-        fg="white",
-        insertbackground="white"
-    )
-
-    debug_box.pack(
-        padx=20,
-        pady=10,
-        fill=tk.BOTH,
-        expand=True
-    )
-
-    button = tk.Button(
-        content_frame,
-        text="🐛 Debug Code",
-        command=debug_code
-    )
-
-    button.pack(
-        pady=10
-    )
-
-
-# =========================================================
-# GENERATOR PAGE
-# =========================================================
-
-def create_generator_page():
-
-    global generator_entry
-
-    title = tk.Label(
-        content_frame,
-        text="💻 CODE GENERATOR",
-        font=("Arial", 18, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    title.pack(
-        pady=15
-    )
-
-    label = tk.Label(
-        content_frame,
-        text="Describe the Python program you want:",
-        font=("Arial", 12),
-        bg=BG,
-        fg="white"
-    )
-
-    label.pack(
-        pady=5
-    )
-
-    generator_entry = tk.Entry(
-        content_frame,
-        font=("Arial", 13),
-        bg=INPUT_BG,
-        fg="white",
-        insertbackground="white"
-    )
-
-    generator_entry.pack(
-        padx=30,
-        fill=tk.X,
-        ipady=10
-    )
-
-    button = tk.Button(
-        content_frame,
-        text="💻 Generate Code",
-        command=generate_code
-    )
-
-    button.pack(
-        pady=15
-    )
-
-    generator_entry.focus()
-
-
-# =========================================================
-# RUNNER PAGE
-# =========================================================
-
-def create_runner_page():
-
-    global runner_box
-    global output_box
-
-    title = tk.Label(
-        content_frame,
-        text="▶️ PYTHON RUNNER",
-        font=("Arial", 18, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    title.pack(
-        pady=10
-    )
-
-    runner_box = scrolledtext.ScrolledText(
-        content_frame,
-        height=15,
-        font=("Consolas", 11),
-        bg=EDITOR_BG,
-        fg="white",
-        insertbackground="white"
-    )
-
-    runner_box.pack(
-        padx=20,
-        pady=10,
-        fill=tk.BOTH,
-        expand=True
-    )
-
-    run_button = tk.Button(
-        content_frame,
-        text="▶️ Run Code",
-        command=run_code
-    )
-
-    run_button.pack(
-        pady=5
-    )
-
-    output_label = tk.Label(
-        content_frame,
-        text="📤 Output",
-        font=("Arial", 12, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    output_label.pack(
-        pady=5
-    )
-
-    output_box = scrolledtext.ScrolledText(
-        content_frame,
-        height=8,
-        font=("Consolas", 11),
-        bg="#111111",
-        fg="#00ff88"
-    )
-
-    output_box.pack(
-        padx=20,
-        pady=5,
-        fill=tk.X
-    )
-
-
-# =========================================================
-# PROJECT PAGE
-# =========================================================
-
-def create_projects_page():
-
-    global file_tree
-    global project_editor
-
-    title = tk.Label(
-        content_frame,
-        text="📁 PROJECTS",
-        font=("Arial", 18, "bold"),
-        bg=BG,
-        fg="white"
-    )
-
-    title.pack(
-        pady=8
-    )
-
-    toolbar = tk.Frame(
-        content_frame,
-        bg=BG
-    )
-
-    toolbar.pack(
-        fill=tk.X,
-        padx=10
-    )
-
-    tk.Button(
-        toolbar,
-        text="📂 Open Project",
-        command=open_project
-    ).pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    tk.Button(
-        toolbar,
-        text="➕ New Python File",
-        command=new_python_file
-    ).pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    tk.Button(
-        toolbar,
-        text="🔄 Refresh",
-        command=refresh_project
-    ).pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    tk.Button(
-        toolbar,
-        text="💾 Save",
-        command=save_project_file
-    ).pack(
-        side=tk.LEFT,
-        padx=3
-    )
-
-    body = tk.Frame(
-        content_frame,
-        bg=BG
-    )
-
-    body.pack(
-        fill=tk.BOTH,
-        expand=True,
-        padx=10,
-        pady=10
-    )
-
-    file_tree = tk.Listbox(
-        body,
-        width=25,
-        bg="#252526",
-        fg="white",
-        selectbackground="#44475a",
-        font=("Consolas", 10),
-        borderwidth=0
-    )
-
-    file_tree.pack(
-        side=tk.LEFT,
-        fill=tk.Y
-    )
-
-    file_tree.bind(
-        "<Double-Button-1>",
-        open_project_file
-    )
-
-    project_editor = scrolledtext.ScrolledText(
-        body,
-        font=("Consolas", 11),
-        bg=EDITOR_BG,
-        fg="white",
-        insertbackground="white",
-        undo=True,
-        wrap=tk.NONE
-    )
-
-    project_editor.pack(
-        side=tk.LEFT,
-        fill=tk.BOTH,
-        expand=True,
-        padx=(10, 0)
-    )
-
-    refresh_project()
-
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-sidebar = tk.Frame(
-    window,
-    width=200,
-    bg=SIDEBAR
-)
-
-sidebar.pack(
-    side=tk.LEFT,
-    fill=tk.Y
-)
-
-sidebar.pack_propagate(
-    False
-)
-
-
-title = tk.Label(
-    sidebar,
-    text="🤖 CODING AI",
-    font=("Arial", 16, "bold"),
-    bg=SIDEBAR,
-    fg="white"
-)
-
-title.pack(
-    pady=20
-)
-
-
-def sidebar_button(text, page):
-
-    button = tk.Button(
-        sidebar,
-        text=text,
-        command=lambda: show_page(page),
-        anchor="w",
-        padx=15,
-        bg="#252526",
-        fg="white",
-        activebackground="#44475a",
-        activeforeground="white",
-        relief=tk.FLAT
-    )
-
-    button.pack(
-        fill=tk.X,
-        padx=10,
-        pady=3
-    )
-
-
-sidebar_button("💬 Chat", "chat")
-sidebar_button("🐛 Debugger", "debug")
-sidebar_button("💻 Generator", "generate")
-sidebar_button("▶️ Runner", "run")
-sidebar_button("📁 Projects", "projects")
-sidebar_button("⚙️ Settings", "settings")
-
-
-# =========================================================
-# CONTENT AREA
-# =========================================================
-
-content_frame = tk.Frame(
-    window,
-    bg=BG
-)
-
-content_frame.pack(
-    side=tk.LEFT,
-    fill=tk.BOTH,
-    expand=True
-)
-
-
-# =========================================================
-# STATUS BAR
-# =========================================================
-
-status = tk.Label(
-    window,
-    text="🟢 Ready",
-    bg="#18191c",
-    fg="white",
-    anchor="w"
-)
-
-status.pack(
-    side=tk.BOTTOM,
-    fill=tk.X
-)
-
-
-# =========================================================
-# GLOBAL WIDGET REFERENCES
-# =========================================================
-
-chat = None
-entry = None
-
-send_button = None
-debug_button = None
-generate_button = None
-stop_button = None
-
-debug_box = None
-generator_entry = None
-runner_box = None
-output_box = None
-
-file_tree = None
-project_editor = None
-
-current_page = "chat"
-
-
-# =========================================================
-# PAGE WRAPPER
-# =========================================================
-
-_old_show_page = show_page
-
-
-def show_page(page):
-
-    global current_page
-
-    current_page = page
-
-    clear_main_area()
-
-    if page == "chat":
-        create_chat_page()
-
-    elif page == "debug":
-        create_debug_page()
-
-    elif page == "generate":
-        create_generator_page()
-
-    elif page == "run":
-        create_runner_page()
-
-    elif page == "projects":
-        create_projects_page()
-
-    elif page == "settings":
-        create_settings_page()
-
-
-# =========================================================
-# START
-# =========================================================
-
-show_page("chat")
-
-window.mainloop()
+    app.mainloop()
 
